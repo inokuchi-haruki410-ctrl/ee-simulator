@@ -549,3 +549,99 @@ input  { font-family: inherit; }
   flex-shrink: 0;
 }
 .todo-del-btn:hover { color: #ef4444; }
+
+/* ── 履修済み登録ボタン（ダッシュボード） ──────────────────────────────── */
+.completed-open-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1.5px dashed var(--primary);
+  border-radius: var(--radius);
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.completed-open-btn:hover { background: #eff6ff; }
+.completed-open-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 3px 8px;
+  border-radius: 10px;
+}
+
+.completed-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+/* ── CompletedSheet 内の行 ──────────────────────────────────────────────── */
+.comp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px;
+  border-radius: 10px;
+  gap: 8px;
+}
+.comp-item:hover { background: var(--bg); }
+.comp-item-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+.comp-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+}
+.comp-item-cr {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.comp-item-right { flex-shrink: 0; }
+
+.comp-toggle {
+  padding: 5px 11px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.comp-toggle.done {
+  background: #ecfdf5;
+  border-color: #059669;
+  color: #059669;
+}
+
+.on-tt-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 3px 9px;
+}

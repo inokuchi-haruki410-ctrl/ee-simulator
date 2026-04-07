@@ -25,15 +25,22 @@ export default function App() {
   const [todos, setTodos] = useState(
     () => JSON.parse(localStorage.getItem('ee-todos') || JSON.stringify(INITIAL_TODOS))
   );
+  const [completed, setCompleted] = useState(
+    () => JSON.parse(localStorage.getItem('ee-completed') || '[]')
+  );
   const [sheet, setSheet]         = useState(null);
   const [catFilter, setCatFilter] = useState('all');
   const [search, setSearch]       = useState('');
   const [todoText, setTodoText]   = useState('');
 
-  useEffect(() => { localStorage.setItem('ee-timetable', JSON.stringify(timetable)); }, [timetable]);
-  useEffect(() => { localStorage.setItem('ee-todos',     JSON.stringify(todos));     }, [todos]);
+  useEffect(() => { localStorage.setItem('ee-timetable',  JSON.stringify(timetable));  }, [timetable]);
+  useEffect(() => { localStorage.setItem('ee-todos',      JSON.stringify(todos));      }, [todos]);
+  useEffect(() => { localStorage.setItem('ee-completed',  JSON.stringify(completed));  }, [completed]);
 
-  const enrolledIds = useMemo(() => [...new Set(Object.values(timetable))], [timetable]);
+  const enrolledIds = useMemo(() => {
+    const fromTimetable = Object.values(timetable);
+    return [...new Set([...fromTimetable, ...completed])];
+  }, [timetable, completed]);
 
   const credits = useMemo(() => {
     const c = { required: 0, elective_a: 0, elective_b: 0, free: 0 };
@@ -100,6 +107,11 @@ export default function App() {
   const toggleTodo = (id) => setTodos(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
   const deleteTodo = (id) => setTodos(prev => prev.filter(t => t.id !== id));
 
+  const toggleCompleted = (courseId) =>
+    setCompleted(prev =>
+      prev.includes(courseId) ? prev.filter(id => id !== courseId) : [...prev, courseId]
+    );
+
   return (
     <div className="app">
       <header className="app-header">
@@ -118,6 +130,9 @@ export default function App() {
             thesisStatus={thesisStatus}
             thesisEligible={thesisEligible}
             enrolledIds={enrolledIds}
+            completed={completed}
+            timetable={timetable}
+            onOpenCompleted={() => setSheet({ type: 'completed' })}
           />
         )}
         {tab === 'timetable' && (
@@ -149,7 +164,7 @@ export default function App() {
         <div className="sheet-backdrop" onClick={closeSheet}>
           <div className="sheet-container" onClick={e => e.stopPropagation()}>
             <div className="sheet-handle" />
-            {sheet.type === 'add' ? (
+            {sheet.type === 'add' && (
               <AddCourseSheet
                 day={sheet.day}
                 period={sheet.period}
@@ -161,12 +176,21 @@ export default function App() {
                 onAdd={addCourse}
                 onClose={closeSheet}
               />
-            ) : (
+            )}
+            {sheet.type === 'detail' && (
               <CourseDetailSheet
                 course={sheet.course}
                 day={sheet.day}
                 period={sheet.period}
                 onRemove={() => removeCourse(sheet.day, sheet.period)}
+                onClose={closeSheet}
+              />
+            )}
+            {sheet.type === 'completed' && (
+              <CompletedSheet
+                completed={completed}
+                timetable={timetable}
+                onToggle={toggleCompleted}
                 onClose={closeSheet}
               />
             )}
@@ -178,7 +202,8 @@ export default function App() {
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
-function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds }) {
+function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds, completed, timetable, onOpenCompleted }) {
+  const timetableIds = new Set(Object.values(timetable));
   return (
     <div className="tab-content">
       <div className={`thesis-banner ${thesisEligible ? 'eligible' : 'not-eligible'}`}>
@@ -233,18 +258,28 @@ function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds }) {
         </div>
       </Card>
 
+      {/* 履修済み登録ボタン */}
+      <button className="completed-open-btn" onClick={onOpenCompleted}>
+        <span>📋 過去の履修済み科目を登録</span>
+        <span className="completed-open-count">
+          {completed.length > 0 ? `${completed.length} 科目登録済み` : '未登録'}
+        </span>
+      </button>
+
       {enrolledIds.length > 0 ? (
         <Card title={`履修科目 (${enrolledIds.length} 科目)`}>
           {enrolledIds.map(id => {
             const c = COURSE_MAP[id];
             if (!c) return null;
             const cat = CATEGORIES[c.category];
+            const isCompleted = !timetableIds.has(id); // 時間割外＝履修済みとして登録
             return (
               <div key={id} className="enrolled-item">
                 <span className="badge" style={{ background: cat.bg, color: cat.color, borderColor: cat.border }}>
                   {cat.label}
                 </span>
                 <span className="enrolled-name">{c.name}</span>
+                {isCompleted && <span className="completed-tag">履修済</span>}
                 <span className="enrolled-credits">{c.credits}単位</span>
               </div>
             );
@@ -253,7 +288,7 @@ function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds }) {
       ) : (
         <div className="empty-hint">
           <div className="empty-icon">📅</div>
-          <p>「時間割」タブで科目を追加してください</p>
+          <p>「時間割」または「過去の履修済み科目を登録」から科目を追加してください</p>
         </div>
       )}
     </div>
@@ -371,6 +406,75 @@ function CourseDetailSheet({ course, day, period, onRemove, onClose }) {
       <div className="sheet-actions">
         <button className="btn-danger" onClick={onRemove}>時間割から削除</button>
         <button className="btn-ghost"  onClick={onClose}>キャンセル</button>
+      </div>
+    </>
+  );
+}
+
+// ── CompletedSheet ────────────────────────────────────────────────────────────
+function CompletedSheet({ completed, timetable, onToggle, onClose }) {
+  const [catFilter, setCatFilter] = useState('all');
+  const timetableIds = new Set(Object.values(timetable));
+
+  const filtered = COURSES.filter(c =>
+    catFilter === 'all' || c.category === catFilter
+  );
+
+  const completedCount = completed.length;
+  const timetableCount = Object.values(timetable).length;
+
+  return (
+    <>
+      <div className="sheet-header">
+        <h2 className="sheet-title">過去の履修済み科目を登録</h2>
+        <p className="sheet-sub">
+          取得済み {completedCount} 科目 · 時間割登録 {timetableCount} 科目
+        </p>
+      </div>
+
+      <div className="cat-chips">
+        {[['all', '全て', '#6b7280'], ...Object.entries(CATEGORIES).map(([k, v]) => [k, v.label, v.color])].map(([key, label, color]) => (
+          <button
+            key={key}
+            className={`cat-chip ${catFilter === key ? 'active' : ''}`}
+            style={catFilter === key ? { background: color, color: '#fff', borderColor: color } : {}}
+            onClick={() => setCatFilter(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="sheet-list">
+        {filtered.map(c => {
+          const cat          = CATEGORIES[c.category];
+          const onTimetable  = timetableIds.has(c.id);
+          const isCompleted  = completed.includes(c.id);
+
+          return (
+            <div key={c.id} className="comp-item">
+              <div className="comp-item-left">
+                <span className="badge" style={{ background: cat.bg, color: cat.color, borderColor: cat.border }}>
+                  {cat.label}
+                </span>
+                <span className="comp-item-name">{c.name}</span>
+                <span className="comp-item-cr">{c.credits}単位</span>
+              </div>
+              <div className="comp-item-right">
+                {onTimetable ? (
+                  <span className="on-tt-tag">時間割</span>
+                ) : (
+                  <button
+                    className={`comp-toggle ${isCompleted ? 'done' : ''}`}
+                    onClick={() => onToggle(c.id)}
+                  >
+                    {isCompleted ? '✓ 取得済' : '未取得'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </>
   );
