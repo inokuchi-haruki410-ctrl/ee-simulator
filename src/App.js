@@ -1,75 +1,119 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './App.css';
-import { CATEGORIES, COURSES, GRAD_REQUIREMENTS, THESIS_CONDITIONS } from './data/courses';
+import {
+  CATEGORIES, COURSES, YEAR2_COURSES, ALL_COURSE_MAP,
+  GRAD_REQUIREMENTS, THESIS_CONDITIONS,
+} from './data/courses';
 
-// ── 定数 ───────────────────────────────────────────────────────────────────────
-const DAYS = ['月', '火', '水', '木', '金'];
-const PERIODS = ['1限', '2限', '3限', '4限', '5限', '6限'];
-const PERIOD_TIMES = ['8:30', '10:25', '13:00', '14:55', '16:50', '18:45'];
+// ── 定数 ──────────────────────────────────────────────────────────────────────
+const DAYS        = ['月', '火', '水', '木', '金'];
+const PERIODS     = ['1限', '2限', '3限', '4限', '5限', '6限'];
+const PERIOD_TIMES= ['8:30', '10:25', '13:00', '14:55', '16:50', '18:45'];
 
-const INITIAL_TODOS = [
-  { id: '1', text: 'シラバスを確認する', done: false },
-  { id: '2', text: '前期履修登録を完了する', done: false },
-  { id: '3', text: '指導教員候補をリストアップする', done: false },
-  { id: '4', text: 'GPA を UTAS で確認する', done: false },
+const TERMS = [
+  { id: 'S1',  label: '3年S1' },
+  { id: 'S2',  label: '3年S2' },
+  { id: 'A1',  label: '3年A1' },
+  { id: 'A2',  label: '3年A2' },
+  { id: '4S1', label: '4年S1' },
+  { id: '4S2', label: '4年S2' },
 ];
 
-const COURSE_MAP = Object.fromEntries(COURSES.map(c => [c.id, c]));
+const YEAR3_COURSES = COURSES.filter(c => ['A1','A2','A1A2'].includes(c.term));
+const YEAR4_COURSES = COURSES.filter(c => ['4S1','4S2'].includes(c.term));
+
+function courseFitsTerm(course, term) {
+  if (term === 'A1') return course.term === 'A1' || course.term === 'A1A2';
+  if (term === 'A2') return course.term === 'A2' || course.term === 'A1A2';
+  return course.term === term;
+}
+
+const EMPTY_TT = { S1:{}, S2:{}, A1:{}, A2:{}, '4S1':{}, '4S2':{} };
+
+const INITIAL_TODOS = [
+  { id: '1', text: 'シラバスを確認する',           done: false },
+  { id: '2', text: '3年A1の履修登録を完了する',    done: false },
+  { id: '3', text: '指導教員候補をリストアップする', done: false },
+];
 
 // ── App ────────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [tab, setTab] = useState('dashboard');
+  const [tab,       setTab]       = useState('dashboard');
   const [timetable, setTimetable] = useState(
-    () => JSON.parse(localStorage.getItem('ee-timetable') || '{}')
+    () => JSON.parse(localStorage.getItem('ee-tt') || JSON.stringify(EMPTY_TT))
   );
-  const [todos, setTodos] = useState(
+  const [activeTerm,    setActiveTerm]    = useState('A1');
+  const [completed,     setCompleted]     = useState(
+    () => JSON.parse(localStorage.getItem('ee-completed-v2') || '[]')
+  );
+  const [customCourses, setCustomCourses] = useState(
+    () => JSON.parse(localStorage.getItem('ee-custom') || '[]')
+  );
+  const [todos,    setTodos]    = useState(
     () => JSON.parse(localStorage.getItem('ee-todos') || JSON.stringify(INITIAL_TODOS))
   );
-  const [completed, setCompleted] = useState(
-    () => JSON.parse(localStorage.getItem('ee-completed') || '[]')
-  );
-  const [sheet, setSheet]         = useState(null);
+  const [sheet,     setSheet]     = useState(null);
   const [catFilter, setCatFilter] = useState('all');
-  const [search, setSearch]       = useState('');
-  const [todoText, setTodoText]   = useState('');
+  const [search,    setSearch]    = useState('');
+  const [todoText,  setTodoText]  = useState('');
 
-  useEffect(() => { localStorage.setItem('ee-timetable',  JSON.stringify(timetable));  }, [timetable]);
-  useEffect(() => { localStorage.setItem('ee-todos',      JSON.stringify(todos));      }, [todos]);
-  useEffect(() => { localStorage.setItem('ee-completed',  JSON.stringify(completed));  }, [completed]);
+  useEffect(() => { localStorage.setItem('ee-tt',           JSON.stringify(timetable));     }, [timetable]);
+  useEffect(() => { localStorage.setItem('ee-completed-v2', JSON.stringify(completed));     }, [completed]);
+  useEffect(() => { localStorage.setItem('ee-custom',       JSON.stringify(customCourses)); }, [customCourses]);
+  useEffect(() => { localStorage.setItem('ee-todos',        JSON.stringify(todos));         }, [todos]);
 
-  const enrolledIds = useMemo(() => {
-    const fromTimetable = Object.values(timetable);
-    return [...new Set([...fromTimetable, ...completed])];
-  }, [timetable, completed]);
+  // 時間割に登録済みの ID セット
+  const ttEnrolledIds = useMemo(
+    () => new Set(Object.values(timetable).flatMap(sem => Object.values(sem))),
+    [timetable]
+  );
 
+  // 全履修 ID（時間割 + completed）
+  const enrolledIds = useMemo(
+    () => [...new Set([...ttEnrolledIds, ...completed])],
+    [ttEnrolledIds, completed]
+  );
+
+  // カテゴリ別単位数
   const credits = useMemo(() => {
-    const c = { required: 0, elective_a: 0, elective_b: 0, free: 0 };
+    const c = { required: 0, limited: 0, standard: 0, free: 0 };
     enrolledIds.forEach(id => {
-      const course = COURSE_MAP[id];
-      if (course) c[course.category] += course.credits;
+      const course = ALL_COURSE_MAP[id];
+      if (course) c[course.category] = (c[course.category] || 0) + course.credits;
     });
-    c.total = c.required + c.elective_a + c.elective_b + c.free;
+    customCourses.forEach(cc => {
+      c[cc.category] = (c[cc.category] || 0) + (parseFloat(cc.credits) || 0);
+    });
+    c.total = c.required + c.limited + c.standard + c.free;
     return c;
-  }, [enrolledIds]);
+  }, [enrolledIds, customCourses]);
 
-  const thesisStatus = useMemo(
-    () => THESIS_CONDITIONS.map(cond => ({ ...cond, met: cond.check(enrolledIds) })),
-    [enrolledIds]
+  // 卒論配属条件
+  const thesisStatus   = useMemo(
+    () => THESIS_CONDITIONS.map(cond => ({ ...cond, met: cond.check(enrolledIds, credits) })),
+    [enrolledIds, credits]
   );
   const thesisEligible = thesisStatus.every(s => s.met);
 
-  const getCellCourse = (day, period) => COURSE_MAP[timetable[`${day}-${period}`]];
+  // 時間割セル取得
+  const getCellCourse = (day, period) =>
+    ALL_COURSE_MAP[timetable[activeTerm]?.[`${day}-${period}`]];
 
+  // 科目追加
   const addCourse = (courseId) => {
     if (!sheet || sheet.type !== 'add') return;
-    setTimetable(prev => ({ ...prev, [`${sheet.day}-${sheet.period}`]: courseId }));
+    setTimetable(prev => ({
+      ...prev,
+      [activeTerm]: { ...prev[activeTerm], [`${sheet.day}-${sheet.period}`]: courseId },
+    }));
     closeSheet();
   };
 
+  // 科目削除
   const removeCourse = (day, period) => {
     setTimetable(prev => {
-      const next = { ...prev };
-      delete next[`${day}-${period}`];
+      const next = { ...prev, [activeTerm]: { ...prev[activeTerm] } };
+      delete next[activeTerm][`${day}-${period}`];
       return next;
     });
     closeSheet();
@@ -78,7 +122,7 @@ export default function App() {
   const openAddSheet = (day, period) => {
     setSearch('');
     setCatFilter('all');
-    setSheet({ type: 'add', day, period });
+    setSheet({ type: 'add', day, period, term: activeTerm });
   };
 
   const closeSheet = () => {
@@ -87,17 +131,29 @@ export default function App() {
     setCatFilter('all');
   };
 
+  // 追加可能科目（現学期 × 未登録）
   const availableCourses = useMemo(() => {
-    const usedIds = new Set(Object.values(timetable));
+    if (!sheet || sheet.type !== 'add') return [];
     return COURSES.filter(c => {
-      if (usedIds.has(c.id)) return false;
+      if (!c.slot) return false;
+      if (ttEnrolledIds.has(c.id)) return false;
+      if (!courseFitsTerm(c, sheet.term)) return false;
       if (catFilter !== 'all' && c.category !== catFilter) return false;
       if (search && !c.name.includes(search)) return false;
       return true;
     });
-  }, [timetable, catFilter, search]);
+  }, [sheet, ttEnrolledIds, catFilter, search]);
 
-  const addTodo = (e) => {
+  // 履修済みトグル
+  const toggleCompleted = (id) =>
+    setCompleted(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  // カスタム科目
+  const addCustom    = (course) => setCustomCourses(prev => [...prev, course]);
+  const removeCustom = (id)     => setCustomCourses(prev => prev.filter(c => c.id !== id));
+
+  // ToDo
+  const addTodo    = (e) => {
     e.preventDefault();
     const text = todoText.trim();
     if (!text) return;
@@ -107,11 +163,6 @@ export default function App() {
   const toggleTodo = (id) => setTodos(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
   const deleteTodo = (id) => setTodos(prev => prev.filter(t => t.id !== id));
 
-  const toggleCompleted = (courseId) =>
-    setCompleted(prev =>
-      prev.includes(courseId) ? prev.filter(id => id !== courseId) : [...prev, courseId]
-    );
-
   return (
     <div className="app">
       <header className="app-header">
@@ -119,6 +170,7 @@ export default function App() {
         <h1 className="app-title">
           {tab === 'dashboard' && 'ダッシュボード'}
           {tab === 'timetable' && '時間割'}
+          {tab === 'history'   && '過去の履修'}
           {tab === 'todo'      && 'ToDo'}
         </h1>
       </header>
@@ -130,13 +182,14 @@ export default function App() {
             thesisStatus={thesisStatus}
             thesisEligible={thesisEligible}
             enrolledIds={enrolledIds}
-            completed={completed}
-            timetable={timetable}
-            onOpenCompleted={() => setSheet({ type: 'completed' })}
+            ttEnrolledIds={ttEnrolledIds}
+            customCourses={customCourses}
           />
         )}
         {tab === 'timetable' && (
           <TimetableView
+            activeTerm={activeTerm}
+            setActiveTerm={setActiveTerm}
             getCellCourse={getCellCourse}
             onCellClick={(day, period) => {
               const course = getCellCourse(day, period);
@@ -144,6 +197,16 @@ export default function App() {
                 ? setSheet({ type: 'detail', day, period, course })
                 : openAddSheet(day, period);
             }}
+          />
+        )}
+        {tab === 'history' && (
+          <HistoryView
+            completed={completed}
+            ttEnrolledIds={ttEnrolledIds}
+            onToggle={toggleCompleted}
+            customCourses={customCourses}
+            onAddCustom={addCustom}
+            onRemoveCustom={removeCustom}
           />
         )}
         {tab === 'todo' && (
@@ -168,6 +231,7 @@ export default function App() {
               <AddCourseSheet
                 day={sheet.day}
                 period={sheet.period}
+                term={sheet.term}
                 courses={availableCourses}
                 catFilter={catFilter}
                 setCatFilter={setCatFilter}
@@ -182,15 +246,8 @@ export default function App() {
                 course={sheet.course}
                 day={sheet.day}
                 period={sheet.period}
+                term={activeTerm}
                 onRemove={() => removeCourse(sheet.day, sheet.period)}
-                onClose={closeSheet}
-              />
-            )}
-            {sheet.type === 'completed' && (
-              <CompletedSheet
-                completed={completed}
-                timetable={timetable}
-                onToggle={toggleCompleted}
                 onClose={closeSheet}
               />
             )}
@@ -202,10 +259,10 @@ export default function App() {
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
-function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds, completed, timetable, onOpenCompleted }) {
-  const timetableIds = new Set(Object.values(timetable));
+function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds, ttEnrolledIds, customCourses }) {
   return (
     <div className="tab-content">
+      {/* 卒論配属バナー */}
       <div className={`thesis-banner ${thesisEligible ? 'eligible' : 'not-eligible'}`}>
         <div className={`thesis-icon-circle ${thesisEligible ? 'ok' : 'ng'}`}>
           {thesisEligible ? '✓' : '!'}
@@ -218,17 +275,17 @@ function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds, complet
         </div>
       </div>
 
+      {/* 卒論配属条件 */}
       <Card title="卒論配属条件">
         {thesisStatus.map(cond => (
           <div key={cond.id} className="cond-row">
-            <span className={`cond-mark ${cond.met ? 'met' : 'unmet'}`}>
-              {cond.met ? '✓' : '✗'}
-            </span>
+            <span className={`cond-mark ${cond.met ? 'met' : 'unmet'}`}>{cond.met ? '✓' : '✗'}</span>
             <span className="cond-label">{cond.label}</span>
           </div>
         ))}
       </Card>
 
+      {/* 卒業要件 */}
       <Card title="卒業要件">
         {Object.entries(GRAD_REQUIREMENTS).map(([key, req]) => {
           const cur = credits[key] || 0;
@@ -240,47 +297,53 @@ function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds, complet
               <div className="credit-row-top">
                 <span className="credit-cat" style={{ color: cat.color }}>{req.label}</span>
                 <span className={`credit-count ${met ? 'met' : ''}`}>
-                  {cur} / {req.min} 単位{met && ' ✓'}
+                  {cur % 1 === 0 ? cur : cur.toFixed(1)} / {req.min} 単位{met && ' ✓'}
                 </span>
               </div>
               <div className="progress-bar">
-                <div
-                  className="progress-fill"
-                  style={{ width: `${pct}%`, backgroundColor: met ? cat.color : '#9ca3af' }}
-                />
+                <div className="progress-fill"
+                  style={{ width: `${pct}%`, backgroundColor: met ? cat.color : '#9ca3af' }} />
               </div>
             </div>
           );
         })}
         <div className="credit-total-row">
           <span>合計取得単位</span>
-          <span className="credit-total-num">{credits.total}<small> 単位</small></span>
+          <span className="credit-total-num">
+            {credits.total % 1 === 0 ? credits.total : credits.total.toFixed(1)}
+            <small> 単位</small>
+          </span>
         </div>
       </Card>
 
-      {/* 履修済み登録ボタン */}
-      <button className="completed-open-btn" onClick={onOpenCompleted}>
-        <span>📋 過去の履修済み科目を登録</span>
-        <span className="completed-open-count">
-          {completed.length > 0 ? `${completed.length} 科目登録済み` : '未登録'}
-        </span>
-      </button>
-
-      {enrolledIds.length > 0 ? (
-        <Card title={`履修科目 (${enrolledIds.length} 科目)`}>
+      {/* 履修科目一覧 */}
+      {(enrolledIds.length > 0 || customCourses.length > 0) ? (
+        <Card title={`取得済み・登録科目 (${enrolledIds.length + customCourses.length} 科目)`}>
           {enrolledIds.map(id => {
-            const c = COURSE_MAP[id];
+            const c   = ALL_COURSE_MAP[id];
             if (!c) return null;
             const cat = CATEGORIES[c.category];
-            const isCompleted = !timetableIds.has(id); // 時間割外＝履修済みとして登録
             return (
               <div key={id} className="enrolled-item">
                 <span className="badge" style={{ background: cat.bg, color: cat.color, borderColor: cat.border }}>
                   {cat.label}
                 </span>
                 <span className="enrolled-name">{c.name}</span>
-                {isCompleted && <span className="completed-tag">履修済</span>}
+                {!ttEnrolledIds.has(id) && <span className="completed-tag">履修済</span>}
                 <span className="enrolled-credits">{c.credits}単位</span>
+              </div>
+            );
+          })}
+          {customCourses.map(cc => {
+            const cat = CATEGORIES[cc.category] || CATEGORIES.free;
+            return (
+              <div key={cc.id} className="enrolled-item">
+                <span className="badge" style={{ background: cat.bg, color: cat.color, borderColor: cat.border }}>
+                  {cat.label}
+                </span>
+                <span className="enrolled-name">{cc.name}</span>
+                <span className="other-tag">他学部</span>
+                <span className="enrolled-credits">{cc.credits}単位</span>
               </div>
             );
           })}
@@ -288,7 +351,7 @@ function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds, complet
       ) : (
         <div className="empty-hint">
           <div className="empty-icon">📅</div>
-          <p>「時間割」または「過去の履修済み科目を登録」から科目を追加してください</p>
+          <p>「時間割」や「過去の履修」タブで科目を追加してください</p>
         </div>
       )}
     </div>
@@ -296,51 +359,194 @@ function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds, complet
 }
 
 // ── TimetableView ──────────────────────────────────────────────────────────────
-function TimetableView({ getCellCourse, onCellClick }) {
+function TimetableView({ activeTerm, setActiveTerm, getCellCourse, onCellClick }) {
   return (
-    <div className="timetable-wrap">
-      <div className="timetable-grid">
-        <div className="g-corner" />
-        {DAYS.map(d => (
-          <div key={d} className="g-day-hd">{d}</div>
+    <div>
+      {/* 学期タブ */}
+      <div className="term-tabs">
+        {TERMS.map(t => (
+          <button
+            key={t.id}
+            className={`term-tab ${activeTerm === t.id ? 'active' : ''}`}
+            onClick={() => setActiveTerm(t.id)}
+          >
+            {t.label}
+          </button>
         ))}
-        {PERIODS.map((_, pi) => (
-          <React.Fragment key={pi}>
-            <div className="g-period-hd">
-              <span className="period-num">{pi + 1}</span>
-              <span className="period-time">{PERIOD_TIMES[pi]}</span>
-            </div>
-            {DAYS.map((_, di) => {
-              const course = getCellCourse(di, pi);
-              const cat    = course ? CATEGORIES[course.category] : null;
+      </div>
+
+      <div className="timetable-wrap">
+        <div className="timetable-grid">
+          <div className="g-corner" />
+          {DAYS.map(d => <div key={d} className="g-day-hd">{d}</div>)}
+          {PERIODS.map((_, pi) => (
+            <React.Fragment key={pi}>
+              <div className="g-period-hd">
+                <span className="period-num">{pi + 1}</span>
+                <span className="period-time">{PERIOD_TIMES[pi]}</span>
+              </div>
+              {DAYS.map((_, di) => {
+                const course = getCellCourse(di, pi);
+                const cat    = course ? CATEGORIES[course.category] : null;
+                return (
+                  <div
+                    key={di}
+                    className={`g-cell ${course ? 'filled' : 'empty'}`}
+                    style={cat ? { background: cat.bg, borderColor: cat.border } : {}}
+                    onClick={() => onCellClick(di, pi)}
+                  >
+                    {course
+                      ? <span className="cell-name" style={{ color: cat.color }}>{course.name}</span>
+                      : <span className="cell-plus">＋</span>
+                    }
+                  </div>
+                );
+              })}
+            </React.Fragment>
+          ))}
+        </div>
+        <p className="timetable-hint">空きコマをタップして科目を追加 / 科目タップで削除</p>
+      </div>
+    </div>
+  );
+}
+
+// ── HistoryView ────────────────────────────────────────────────────────────────
+function HistoryView({ completed, ttEnrolledIds, onToggle, customCourses, onAddCustom, onRemoveCustom }) {
+  const [yearSection,  setYearSection]  = useState('y2');
+  const [customForm,   setCustomForm]   = useState({ name: '', credits: '2', category: 'limited' });
+
+  const courseListToShow = yearSection === 'y2' ? YEAR2_COURSES
+    : yearSection === 'y3' ? YEAR3_COURSES
+    : YEAR4_COURSES;
+
+  const handleAddCustom = (e) => {
+    e.preventDefault();
+    const name = customForm.name.trim();
+    if (!name) return;
+    onAddCustom({
+      id:       `custom-${Date.now()}`,
+      name,
+      credits:  parseFloat(customForm.credits) || 0,
+      category: customForm.category,
+    });
+    setCustomForm({ name: '', credits: '2', category: 'limited' });
+  };
+
+  return (
+    <div className="tab-content">
+      {/* 過去の履修済み科目 */}
+      <Card title="過去の履修済み科目">
+        <div className="year-tabs">
+          {[['y2','2年次以前'], ['y3','3年A1A2'], ['y4','4年']].map(([id, label]) => (
+            <button
+              key={id}
+              className={`year-tab ${yearSection === id ? 'active' : ''}`}
+              onClick={() => setYearSection(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="past-list">
+          {courseListToShow.map(c => {
+            const cat    = CATEGORIES[c.category];
+            const onTT   = ttEnrolledIds.has(c.id);
+            const isDone = completed.includes(c.id);
+            return (
+              <div key={c.id} className="past-item">
+                <div className="past-item-left">
+                  <span className="badge" style={{ background: cat.bg, color: cat.color, borderColor: cat.border }}>
+                    {cat.label}
+                  </span>
+                  <span className="past-item-name">{c.name}</span>
+                  <span className="past-item-cr">{c.credits}単位</span>
+                </div>
+                <div className="past-item-right">
+                  {onTT ? (
+                    <span className="on-tt-tag">時間割</span>
+                  ) : (
+                    <button
+                      className={`comp-toggle ${isDone ? 'done' : ''}`}
+                      onClick={() => onToggle(c.id)}
+                    >
+                      {isDone ? '✓ 取得済' : '未取得'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* 他学部・その他科目 */}
+      <Card title="他学部・その他科目を追加">
+        <form className="custom-form" onSubmit={handleAddCustom}>
+          <input
+            className="custom-name-input"
+            type="text"
+            placeholder="科目名を入力..."
+            value={customForm.name}
+            onChange={e => setCustomForm(f => ({ ...f, name: e.target.value }))}
+          />
+          <div className="custom-row">
+            <input
+              className="custom-credits-input"
+              type="number"
+              min="0.5"
+              max="12"
+              step="0.5"
+              value={customForm.credits}
+              onChange={e => setCustomForm(f => ({ ...f, credits: e.target.value }))}
+            />
+            <span className="custom-unit">単位</span>
+            <select
+              className="custom-select"
+              value={customForm.category}
+              onChange={e => setCustomForm(f => ({ ...f, category: e.target.value }))}
+            >
+              <option value="limited">限定選択○</option>
+              <option value="standard">標準選択※</option>
+              <option value="free">自由選択</option>
+            </select>
+            <button type="submit" className="custom-add-btn">追加</button>
+          </div>
+        </form>
+
+        {customCourses.length > 0 ? (
+          <div className="custom-list">
+            {customCourses.map(cc => {
+              const cat = CATEGORIES[cc.category] || CATEGORIES.free;
               return (
-                <div
-                  key={di}
-                  className={`g-cell ${course ? 'filled' : 'empty'}`}
-                  style={cat ? { background: cat.bg, borderColor: cat.border } : {}}
-                  onClick={() => onCellClick(di, pi)}
-                >
-                  {course
-                    ? <span className="cell-name" style={{ color: cat.color }}>{course.name}</span>
-                    : <span className="cell-plus">＋</span>
-                  }
+                <div key={cc.id} className="custom-item">
+                  <span className="badge" style={{ background: cat.bg, color: cat.color, borderColor: cat.border }}>
+                    {cat.label}
+                  </span>
+                  <span className="custom-item-name">{cc.name}</span>
+                  <span className="custom-item-cr">{cc.credits}単位</span>
+                  <button className="custom-del-btn" onClick={() => onRemoveCustom(cc.id)}>×</button>
                 </div>
               );
             })}
-          </React.Fragment>
-        ))}
-      </div>
-      <p className="timetable-hint">空きコマをタップして科目を追加 / 科目をタップで削除</p>
+          </div>
+        ) : (
+          <p className="custom-empty">他学部や自由選択の科目を手動で追加できます</p>
+        )}
+      </Card>
     </div>
   );
 }
 
 // ── AddCourseSheet ─────────────────────────────────────────────────────────────
-function AddCourseSheet({ day, period, courses, catFilter, setCatFilter, search, setSearch, onAdd }) {
+function AddCourseSheet({ day, period, term, courses, catFilter, setCatFilter, search, setSearch, onAdd }) {
+  const termLabel = TERMS.find(t => t.id === term)?.label || term;
   return (
     <>
       <div className="sheet-header">
         <h2 className="sheet-title">{DAYS[day]}曜 {period + 1}限 に科目を追加</h2>
+        <p className="sheet-sub">{termLabel}</p>
       </div>
 
       <div className="sheet-search-wrap">
@@ -355,11 +561,11 @@ function AddCourseSheet({ day, period, courses, catFilter, setCatFilter, search,
       </div>
 
       <div className="cat-chips">
-        {[['all', '全て', '#6b7280'], ...Object.entries(CATEGORIES).map(([k, v]) => [k, v.label, v.color])].map(([key, label, color]) => (
+        {[['all','全て','#6b7280'], ...Object.entries(CATEGORIES).map(([k,v]) => [k,v.label,v.color])].map(([key,label,color]) => (
           <button
             key={key}
             className={`cat-chip ${catFilter === key ? 'active' : ''}`}
-            style={catFilter === key ? { background: color, color: '#fff', borderColor: color } : {}}
+            style={catFilter === key ? { background: color, color:'#fff', borderColor: color } : {}}
             onClick={() => setCatFilter(key)}
           >
             {label}
@@ -392,8 +598,9 @@ function AddCourseSheet({ day, period, courses, catFilter, setCatFilter, search,
 }
 
 // ── CourseDetailSheet ──────────────────────────────────────────────────────────
-function CourseDetailSheet({ course, day, period, onRemove, onClose }) {
-  const cat = CATEGORIES[course.category];
+function CourseDetailSheet({ course, day, period, term, onRemove, onClose }) {
+  const cat       = CATEGORIES[course.category];
+  const termLabel = TERMS.find(t => t.id === term)?.label || term;
   return (
     <>
       <div className="sheet-header">
@@ -401,7 +608,7 @@ function CourseDetailSheet({ course, day, period, onRemove, onClose }) {
           {cat.label}
         </span>
         <h2 className="sheet-title" style={{ marginTop: 8 }}>{course.name}</h2>
-        <p className="sheet-sub">{DAYS[day]}曜 {period + 1}限 · {course.credits} 単位 · {course.year} 年次</p>
+        <p className="sheet-sub">{DAYS[day]}曜 {period + 1}限 · {course.credits}単位 · {termLabel}</p>
       </div>
       <div className="sheet-actions">
         <button className="btn-danger" onClick={onRemove}>時間割から削除</button>
@@ -411,80 +618,10 @@ function CourseDetailSheet({ course, day, period, onRemove, onClose }) {
   );
 }
 
-// ── CompletedSheet ────────────────────────────────────────────────────────────
-function CompletedSheet({ completed, timetable, onToggle, onClose }) {
-  const [catFilter, setCatFilter] = useState('all');
-  const timetableIds = new Set(Object.values(timetable));
-
-  const filtered = COURSES.filter(c =>
-    catFilter === 'all' || c.category === catFilter
-  );
-
-  const completedCount = completed.length;
-  const timetableCount = Object.values(timetable).length;
-
-  return (
-    <>
-      <div className="sheet-header">
-        <h2 className="sheet-title">過去の履修済み科目を登録</h2>
-        <p className="sheet-sub">
-          取得済み {completedCount} 科目 · 時間割登録 {timetableCount} 科目
-        </p>
-      </div>
-
-      <div className="cat-chips">
-        {[['all', '全て', '#6b7280'], ...Object.entries(CATEGORIES).map(([k, v]) => [k, v.label, v.color])].map(([key, label, color]) => (
-          <button
-            key={key}
-            className={`cat-chip ${catFilter === key ? 'active' : ''}`}
-            style={catFilter === key ? { background: color, color: '#fff', borderColor: color } : {}}
-            onClick={() => setCatFilter(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="sheet-list">
-        {filtered.map(c => {
-          const cat          = CATEGORIES[c.category];
-          const onTimetable  = timetableIds.has(c.id);
-          const isCompleted  = completed.includes(c.id);
-
-          return (
-            <div key={c.id} className="comp-item">
-              <div className="comp-item-left">
-                <span className="badge" style={{ background: cat.bg, color: cat.color, borderColor: cat.border }}>
-                  {cat.label}
-                </span>
-                <span className="comp-item-name">{c.name}</span>
-                <span className="comp-item-cr">{c.credits}単位</span>
-              </div>
-              <div className="comp-item-right">
-                {onTimetable ? (
-                  <span className="on-tt-tag">時間割</span>
-                ) : (
-                  <button
-                    className={`comp-toggle ${isCompleted ? 'done' : ''}`}
-                    onClick={() => onToggle(c.id)}
-                  >
-                    {isCompleted ? '✓ 取得済' : '未取得'}
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
 // ── TodoView ───────────────────────────────────────────────────────────────────
 function TodoView({ todos, todoText, setTodoText, addTodo, toggleTodo, deleteTodo }) {
   const pending = todos.filter(t => !t.done);
   const done    = todos.filter(t =>  t.done);
-
   return (
     <div className="tab-content">
       <form className="todo-form" onSubmit={addTodo}>
@@ -497,21 +634,18 @@ function TodoView({ todos, todoText, setTodoText, addTodo, toggleTodo, deleteTod
         />
         <button type="submit" className="todo-add-btn">追加</button>
       </form>
-
       {pending.length > 0 && (
         <section className="todo-section">
           <h3 className="todo-sec-title">未完了 ({pending.length})</h3>
           {pending.map(t => <TodoItem key={t.id} todo={t} onToggle={toggleTodo} onDelete={deleteTodo} />)}
         </section>
       )}
-
       {done.length > 0 && (
         <section className="todo-section">
           <h3 className="todo-sec-title">完了 ({done.length})</h3>
           {done.map(t => <TodoItem key={t.id} todo={t} onToggle={toggleTodo} onDelete={deleteTodo} />)}
         </section>
       )}
-
       {todos.length === 0 && (
         <div className="empty-hint">
           <div className="empty-icon">✅</div>
@@ -543,6 +677,7 @@ function BottomNav({ tab, setTab }) {
       {[
         { id: 'dashboard', label: 'ダッシュボード', icon: <IconDashboard /> },
         { id: 'timetable', label: '時間割',         icon: <IconCalendar />  },
+        { id: 'history',   label: '過去の履修',      icon: <IconHistory />   },
         { id: 'todo',      label: 'ToDo',           icon: <IconTodo />      },
       ].map(({ id, label, icon }) => (
         <button key={id} className={`nav-btn ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
@@ -564,7 +699,7 @@ function Card({ title, children }) {
   );
 }
 
-// ── Icons ──────────────────────────────────────────────────────────────────────
+// ── SVG アイコン ────────────────────────────────────────────────────────────────
 function IconDashboard() {
   return (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
@@ -576,6 +711,13 @@ function IconCalendar() {
   return (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
       <path d="M19 3h-1V1h-2v2H8V1H6v2H5C3.89 3 3.01 3.9 3.01 5L3 19a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H5V8h14v11zM7 10h5v5H7z" />
+    </svg>
+  );
+}
+function IconHistory() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+      <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7a6.99 6.99 0 0 1-4.89-1.99L6.7 18.42A8.96 8.96 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z" />
     </svg>
   );
 }
