@@ -131,13 +131,14 @@ export default function App() {
     setCatFilter('all');
   };
 
-  // 追加可能科目（現学期 × 未登録）
+  // 追加可能科目（未登録 × 検索フィルタ。学期フィルタは参考表示のみ）
   const availableCourses = useMemo(() => {
     if (!sheet || sheet.type !== 'add') return [];
-    return COURSES.filter(c => {
-      if (!c.slot) return false;
+    const termCourses = COURSES.filter(c => c.slot && courseFitsTerm(c, sheet.term));
+    // 現学期に対応する科目がなければ全科目を候補にする
+    const pool = termCourses.length > 0 ? termCourses : COURSES.filter(c => c.slot);
+    return pool.filter(c => {
       if (ttEnrolledIds.has(c.id)) return false;
-      if (!courseFitsTerm(c, sheet.term)) return false;
       if (catFilter !== 'all' && c.category !== catFilter) return false;
       if (search && !c.name.includes(search)) return false;
       return true;
@@ -287,33 +288,26 @@ function Dashboard({ credits, thesisStatus, thesisEligible, enrolledIds, ttEnrol
 
       {/* 卒業要件 */}
       <Card title="卒業要件">
-        {Object.entries(GRAD_REQUIREMENTS).map(([key, req]) => {
-          const cur = credits[key] || 0;
-          const pct = Math.min(100, (cur / req.min) * 100);
-          const met = cur >= req.min;
-          const cat = CATEGORIES[key];
+        {GRAD_REQUIREMENTS.map(req => {
+          const cur   = credits[req.key] || 0;
+          const pct   = Math.min(100, (cur / req.min) * 100);
+          const met   = cur >= req.min;
+          const color = CATEGORIES[req.key]?.color || '#2563eb';
           return (
-            <div key={key} className="credit-row">
+            <div key={req.key} className="credit-row">
               <div className="credit-row-top">
-                <span className="credit-cat" style={{ color: cat.color }}>{req.label}</span>
+                <span className="credit-cat" style={{ color }}>{req.label}</span>
                 <span className={`credit-count ${met ? 'met' : ''}`}>
                   {cur % 1 === 0 ? cur : cur.toFixed(1)} / {req.min} 単位{met && ' ✓'}
                 </span>
               </div>
               <div className="progress-bar">
                 <div className="progress-fill"
-                  style={{ width: `${pct}%`, backgroundColor: met ? cat.color : '#9ca3af' }} />
+                  style={{ width: `${pct}%`, backgroundColor: met ? color : '#9ca3af' }} />
               </div>
             </div>
           );
         })}
-        <div className="credit-total-row">
-          <span>合計取得単位</span>
-          <span className="credit-total-num">
-            {credits.total % 1 === 0 ? credits.total : credits.total.toFixed(1)}
-            <small> 単位</small>
-          </span>
-        </div>
       </Card>
 
       {/* 履修科目一覧 */}

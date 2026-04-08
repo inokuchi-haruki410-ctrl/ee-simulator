@@ -9,6 +9,7 @@ export const CATEGORIES = {
 // ── 2年次以前の科目（過去の履修画面のみ） ─────────────────────────────────
 export const YEAR2_COURSES = [
   { id: 'y2_01', name: '動機付けプロジェクト',         credits: 2.5, category: 'required', year: 2 },
+  { id: 'y2_bpj', name: '基礎プロジェクトA',           credits: 2.5, category: 'required', year: 2 },
   { id: 'y2_02', name: '数理手法I',                   credits: 2,   category: 'limited',  year: 2 },
   { id: 'y2_03', name: '力学演習1A',                  credits: 1,   category: 'limited',  year: 2 },
   { id: 'y2_04', name: '力学演習2A',                  credits: 1,   category: 'limited',  year: 2 },
@@ -85,27 +86,22 @@ export const ALL_COURSES  = [...YEAR2_COURSES, ...COURSES];
 export const ALL_COURSE_MAP = Object.fromEntries(ALL_COURSES.map(c => [c.id, c]));
 
 // ── 卒業要件 ─────────────────────────────────────────────────────────────────
-export const GRAD_REQUIREMENTS = {
-  required: { label: '必修◎',    min: 18 },
-  limited:  { label: '限定選択○', min: 14 },
-  standard: { label: '標準選択※', min: 6  },
-};
+export const GRAD_REQUIREMENTS = [
+  { key: 'required', label: '必修◎',      min: 20 },
+  { key: 'limited',  label: '限定選択○',   min: 40 },
+  { key: 'total',    label: '合計',        min: 90 },
+];
 
 // ── 卒論配属条件 ─────────────────────────────────────────────────────────────
 export const THESIS_CONDITIONS = [
   {
-    id: 'motiv',
-    label: '動機付けプロジェクトを取得',
-    check: (ids) => ids.includes('y2_01'),
+    id: 'total50',
+    label: '卒業に算入される単位が 50 単位以上',
+    check: (_ids, credits) => (credits?.total || 0) >= 50,
   },
   {
-    id: 'appj',
-    label: '応用プロジェクトAを取得',
-    check: (ids) => ids.includes('a12_apj'),
-  },
-  {
-    id: 'limited12',
-    label: '限定選択○を 12 単位以上取得',
-    check: (ids, credits) => (credits?.limited || 0) >= 12,
+    id: 'projects',
+    label: '動機付けプロジェクト・基礎プロジェクトA・応用プロジェクトA を取得済み',
+    check: (ids) => ['y2_01', 'y2_bpj', 'a12_apj'].every(id => ids.includes(id)),
   },
 ];
